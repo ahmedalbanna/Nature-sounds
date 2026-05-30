@@ -115,6 +115,16 @@ fun AmbientSoundsDashboard(
                 onToggleSimulation = { enable -> viewModel.toggleTimeSimulation(enable) }
             )
 
+            // NEW: DEEP SLEEP MODE CONTROLS
+            DeepSleepCard(
+                pref = pref,
+                onToggleEnabled = { viewModel.toggleDeepSleepEnabled(it) },
+                onDurationChanged = { viewModel.updateDeepSleepDuration(it) },
+                onToggleNightHowls = { viewModel.toggleIntroduceNightHowls(it) },
+                onStartTimer = { viewModel.startDeepSleepTimer() },
+                onCancelTimer = { viewModel.cancelDeepSleepTimer() }
+            )
+
             // 4. MANUAL MIXER PREVIEW DECK (Direct action buttons)
             SoundMixerCard(
                 pref = pref,
@@ -947,6 +957,254 @@ fun DynamicAudioWave(
                 strokeWidth =  2.dp.toPx(),
                 pathEffect =  PathEffect.dashPathEffect(floatArrayOf(15f, 15f), phase * 10f)
             )
+        }
+    }
+}
+
+@Composable
+fun DeepSleepCard(
+    pref: AppPreference,
+    onToggleEnabled: (Boolean) -> Unit,
+    onDurationChanged: (Int) -> Unit,
+    onToggleNightHowls: (Boolean) -> Unit,
+    onStartTimer: () -> Unit,
+    onCancelTimer: () -> Unit
+) {
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    
+    // Update local time every second when timer is active to display precise countdown
+    LaunchedEffect(pref.isDeepSleepTimerActive) {
+        if (pref.isDeepSleepTimerActive) {
+            while (true) {
+                currentTimeMillis = System.currentTimeMillis()
+                kotlinx.coroutines.delay(1000L)
+            }
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("deep_sleep_card"),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, NaturalBorder.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(containerColor = NaturalCardBg)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "وضع النوم العميق المتلاشي (Deep Sleep) 😴",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = NaturalText
+                        )
+                    )
+                    Text(
+                        text = "خفت تدريجي للأصوات لمساعدتك على النوم العميق والهانئ تلقائياً.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext),
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Main Toggle for Deep Sleep Mode
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(NaturalNavBg)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "تمكين وضع النوم العميق",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = NaturalText,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        text = "يتلاشى الصوت تدريجياً وبنعومة حتى الصمت الكامل.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 10.sp)
+                    )
+                }
+
+                Switch(
+                    checked = pref.isDeepSleepEnabled,
+                    onCheckedChange = { onToggleEnabled(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = NaturalPrimary,
+                        checkedTrackColor = NaturalAccentBright
+                    ),
+                    modifier = Modifier.testTag("deep_sleep_switch")
+                )
+            }
+
+            if (pref.isDeepSleepEnabled) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Countdown Timer or Options Configuration
+                if (pref.isDeepSleepTimerActive) {
+                    // Running state countdown display
+                    val elapsedMillis = currentTimeMillis - pref.deepSleepStartTimeMillis
+                    val totalDurationMillis = pref.deepSleepDurationMinutes * 60 * 1000L
+                    val remainingMillis = (totalDurationMillis - elapsedMillis).coerceAtLeast(0L)
+                    val remainingMinutes = remainingMillis / 60000
+                    val remainingSeconds = (remainingMillis % 60000) / 1000
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NaturalAccentHighlight.copy(alpha = 0.5f))
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "جاري تلاشي الأصوات تدريجياً... 💤",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = NaturalPrimary
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = String.format(Locale.getDefault(), "%02d:%02d", remainingMinutes, remainingSeconds),
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = NaturalPrimary,
+                                letterSpacing = 2.sp
+                            )
+                        )
+                        Text(
+                            text = "الوقت المتبقي حتى الصمت والراحة التامة",
+                            style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = onCancelTimer,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFBA1A1A),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("cancel_deep_sleep_button")
+                        ) {
+                            Text("إلغاء وإيقاف مؤقت النوم")
+                        }
+                    }
+                } else {
+                    // Config state
+                    Text(
+                        text = "اختر مدة التلاشي حتى الصمت (بالدقائق):",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = NaturalSubtext
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val durations = listOf(1, 5, 15, 30, 60)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        durations.forEach { mins ->
+                            val isSelected = pref.deepSleepDurationMinutes == mins
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) NaturalPrimary else NaturalNavBg)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) NaturalPrimary else NaturalBorder.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onDurationChanged(mins) }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$mins د",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else NaturalText
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Animal Howls Toggle option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(NaturalNavBg)
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "إدخال عواء ذئاب دوري ليلاً 🐺",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = NaturalText,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                            Text(
+                                text = "تشغيل عواء دافئ خافت مع أصوات الليل بدلاً من الصمت التام لتعزيز شعور البراري الطمأنيني.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 10.sp)
+                            )
+                        }
+
+                        Switch(
+                            checked = pref.introduceNightHowls,
+                            onCheckedChange = { onToggleNightHowls(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = NaturalPrimary,
+                                checkedTrackColor = NaturalAccentBright
+                            ),
+                            modifier = Modifier.testTag("night_howl_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = onStartTimer,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NaturalPrimary,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("start_deep_sleep_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "بدء مؤقت النوم", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "ابدأ رحلة النوم الهادئ التدريجي",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -20,5 +20,10 @@ data class AppPreference(
     val useSimulatedTime: Boolean = true,
     val simulatedHour: Int = 6, // Default at 6:00 AM (Birds morning peak)
     val simulatedMinute: Int = 0,
-    val isServiceRunning: Boolean = false
+    val isServiceRunning: Boolean = false,
+    val isDeepSleepEnabled: Boolean = false,
+    val deepSleepDurationMinutes: Int = 30, // standard duration
+    val deepSleepStartTimeMillis: Long = 0L,
+    val isDeepSleepTimerActive: Boolean = false,
+    val introduceNightHowls: Boolean = false
 )

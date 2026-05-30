@@ -160,7 +160,42 @@ class AmbientSoundService : Service() {
                 try {
                     // Reread preference to know parameters (volume, time simulation, simulated hour)
                     val pref = repository.getPreferencesDirect()
-                    synth.masterVolume = pref.masterVolume
+                    
+                    var fadeFactor = 1.0f
+                    if (pref.isDeepSleepEnabled && pref.isDeepSleepTimerActive) {
+                        val elapsedMillis = System.currentTimeMillis() - pref.deepSleepStartTimeMillis
+                        val durationMillis = pref.deepSleepDurationMinutes * 60 * 1000L
+                        if (elapsedMillis >= durationMillis) {
+                            fadeFactor = 0.0f
+                            
+                            // Timer completed! Set active state to false, isServiceRunning to false, and send stop action
+                            serviceScope.launch(Dispatchers.IO) {
+                                val updatedPref = repository.getPreferencesDirect().copy(
+                                    isDeepSleepTimerActive = false,
+                                    isServiceRunning = false
+                                )
+                                repository.savePreferences(updatedPref)
+                                repository.insertLog(
+                                    PlaybackLog(
+                                        sessionName = "اكتمل مؤقت النوم العميق 😴",
+                                        activeSounds = "تم إطفاء وتلاشي الأصوات تماماً لمساعدتك على النوم العالي",
+                                        hourOfDay = if (updatedPref.useSimulatedTime) updatedPref.simulatedHour else Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+                                        isUserTriggered = false
+                                    )
+                                )
+                                withContext(Dispatchers.Main) {
+                                    val stopIntent = Intent(this@AmbientSoundService, AmbientSoundService::class.java).apply {
+                                        action = ACTION_STOP
+                                    }
+                                    startService(stopIntent)
+                                }
+                            }
+                        } else {
+                            fadeFactor = 1.0f - (elapsedMillis.toFloat() / durationMillis.toFloat())
+                        }
+                    }
+
+                    synth.masterVolume = pref.masterVolume * fadeFactor
 
                     // Get Current Hour and Minute
                     val hour: Int
@@ -183,19 +218,44 @@ class AmbientSoundService : Service() {
                     val windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else schedule.windVol
                     val rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else schedule.rainVol
                     
+                    // Pre-defined night howl logic
+                    val isNightHour = hour in 21..23 || hour in 0..5
+                    val shouldIntroduceNightHowl = pref.introduceNightHowls && isNightHour && (minute == 0)
+                    
+                    val howlTarget = when {
+                        manualPreviews[NatureSoundSynth.SoundType.HOWL] == true -> 0.85f
+                        schedule.howlActive || shouldIntroduceNightHowl -> 0.70f
+                        else -> 0.0f
+                    }
+                    
                     // Set target volumes accordingly
                     synth.setTargetVolume(NatureSoundSynth.SoundType.BIRDS, birdsTarget)
                     synth.setTargetVolume(NatureSoundSynth.SoundType.WATERFALL, waterfallTarget)
                     synth.setTargetVolume(NatureSoundSynth.SoundType.WIND, windTarget)
                     synth.setTargetVolume(NatureSoundSynth.SoundType.RAIN, rainTarget)
+                    synth.setTargetVolume(NatureSoundSynth.SoundType.HOWL, howlTarget)
                     
-                    // If howl schedule is active, force trigger howl once
-                    if (schedule.howlActive && !synth.isHowlPlaying()) {
+                    // Trigger howl if requested and not playing
+                    if (howlTarget > 0.05f && !synth.isHowlPlaying()) {
                         synth.forceHowl()
+                        
+                        serviceScope.launch(Dispatchers.IO) {
+                            val logReason = if (shouldIntroduceNightHowl) "عواء بري دوري خافت (النوم العميق)" else "عواء دورة الليل المبرمجة"
+                            val currentPref = repository.getPreferencesDirect()
+                            val curHour = if (currentPref.useSimulatedTime) currentPref.simulatedHour else Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                            repository.insertLog(
+                                PlaybackLog(
+                                    sessionName = "$logReason 🐺",
+                                    activeSounds = "عواء ذئب هادئ متلاشي يرتفع ثم ينخمد بدقة لنمط نوم صحي",
+                                    hourOfDay = curHour,
+                                    isUserTriggered = false
+                                )
+                            )
+                        }
                     }
 
                     // Log session transition to Room in a smart way
-                    val activeSessionName = if (manualPreviews.values.any { it }) "جلسة تشغيل ومعاينة مخصصة" else schedule.sessionName
+                    val activeSessionName = if (manualPreviews.values.any { it }) "جلسة تشغيل ومعاينة مخصصة" else if (pref.isDeepSleepTimerActive) "وضع النوم العميق الخافت المتلاشي" else schedule.sessionName
                     if (activeSessionName != lastLoggedSession && !activeSessionName.contains("معاينة")) {
                         lastLoggedSession = activeSessionName
                         val log = PlaybackLog(
@@ -209,7 +269,15 @@ class AmbientSoundService : Service() {
 
                     // Update notification text dynamically
                     withContext(Dispatchers.Main) {
-                        updateNotification(activeSessionName, hour, minute, pref.useSimulatedTime)
+                        val sessionWithTimer = if (pref.isDeepSleepTimerActive) {
+                            val elapsedSec = (System.currentTimeMillis() - pref.deepSleepStartTimeMillis) / 1000
+                            val totalSec = pref.deepSleepDurationMinutes * 60
+                            val remainingMin = java.lang.Math.max(0L, (totalSec - elapsedSec) / 60)
+                            "وضع النوم العميق (متبقي $remainingMin د)"
+                        } else {
+                            activeSessionName
+                        }
+                        updateNotification(sessionWithTimer, hour, minute, pref.useSimulatedTime)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Exception in scheduler loop", e)

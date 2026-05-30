@@ -198,7 +198,7 @@ class NatureSoundSynth {
                         (sWaterfall * wVol * 0.7f) +  // slightly dampen base rumble
                         (sWind * ndVol * 0.8f) +
                         (sRain * rVol * 0.8f) +
-                        sHowl +
+                        (sHowl * hVol) +
                         sLeaves
 
                 // Apply master volume

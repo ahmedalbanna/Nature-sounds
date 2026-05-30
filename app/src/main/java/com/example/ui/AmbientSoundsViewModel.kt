@@ -111,6 +111,77 @@ class AmbientSoundsViewModel(
         context.startService(intent)
     }
 
+    fun toggleDeepSleepEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            repository.savePreferences(currentPref.copy(isDeepSleepEnabled = enabled))
+            notifyPrefChanged()
+        }
+    }
+
+    fun updateDeepSleepDuration(minutes: Int) {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            repository.savePreferences(currentPref.copy(deepSleepDurationMinutes = minutes))
+            notifyPrefChanged()
+        }
+    }
+
+    fun toggleIntroduceNightHowls(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            repository.savePreferences(currentPref.copy(introduceNightHowls = enabled))
+            notifyPrefChanged()
+        }
+    }
+
+    fun startDeepSleepTimer() {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            val updated = currentPref.copy(
+                isDeepSleepEnabled = true,
+                isDeepSleepTimerActive = true,
+                deepSleepStartTimeMillis = System.currentTimeMillis()
+            )
+            repository.savePreferences(updated)
+            
+            repository.insertLog(
+                PlaybackLog(
+                    sessionName = "تفعيل مؤقت النوم العميق 🛌",
+                    activeSounds = "المدة المخصصة للتلاشي: ${currentPref.deepSleepDurationMinutes} دقيقة",
+                    hourOfDay = if (updated.useSimulatedTime) updated.simulatedHour else java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+                    isUserTriggered = true
+                )
+            )
+
+            if (!currentPref.isServiceRunning) {
+                startService()
+            } else {
+                notifyPrefChanged()
+            }
+        }
+    }
+
+    fun cancelDeepSleepTimer() {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            val updated = currentPref.copy(
+                isDeepSleepTimerActive = false
+            )
+            repository.savePreferences(updated)
+            
+            repository.insertLog(
+                PlaybackLog(
+                    sessionName = "إلغاء وضع النوم العميق 🛑",
+                    activeSounds = "العودة لحجم الصوت الطبيعي وإيقاف تناقص الصوت المتوالي",
+                    hourOfDay = if (updated.useSimulatedTime) updated.simulatedHour else java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+                    isUserTriggered = true
+                )
+            )
+            notifyPrefChanged()
+        }
+    }
+
     fun clearLogs() {
         viewModelScope.launch {
             repository.clearLogs()
