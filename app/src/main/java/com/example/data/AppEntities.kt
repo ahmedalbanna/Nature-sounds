@@ -27,7 +27,13 @@ data class AppPreference(
     val isDeepSleepTimerActive: Boolean = false,
     val introduceNightHowls: Boolean = false,
     val activePlaylistId: Int? = null,
-    val playlistVolumeFactor: Float = 1.0f
+    val playlistVolumeFactor: Float = 1.0f,
+    val weatherCity: String? = null,
+    val weatherTemp: Float? = null,
+    val weatherCode: Int? = null,
+    val isWeatherSyncEnabled: Boolean = false,
+    val weatherLat: Double = 0.0,
+    val weatherLon: Double = 0.0
 )
 
 @Entity(tableName = "custom_playlists")

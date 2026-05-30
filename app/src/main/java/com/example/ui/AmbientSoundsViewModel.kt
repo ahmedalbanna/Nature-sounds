@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.*
 import com.example.service.AmbientSoundService
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -29,6 +30,9 @@ class AmbientSoundsViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AppPreference()
         )
+
+    val weatherLoading = MutableStateFlow(false)
+    val weatherError = MutableStateFlow<String?>(null)
 
     val customPlaylists: StateFlow<List<CustomPlaylist>> = repository.allPlaylists
         .stateIn(
@@ -304,6 +308,166 @@ class AmbientSoundsViewModel(
             val currentPref = repository.getPreferencesDirect()
             repository.savePreferences(currentPref.copy(playlistVolumeFactor = factor))
             notifyPrefChanged()
+        }
+    }
+
+    fun syncWeather(latitude: Double, longitude: Double, cityName: String) {
+        viewModelScope.launch {
+            weatherLoading.value = true
+            weatherError.value = null
+            try {
+                val response = WeatherClient.api.getWeather(latitude, longitude)
+                val current = response.current_weather
+                if (current != null) {
+                    val currentPref = repository.getPreferencesDirect()
+                    val updated = currentPref.copy(
+                        weatherCity = cityName,
+                        weatherTemp = current.temperature,
+                        weatherCode = current.weathercode,
+                        weatherLat = latitude,
+                        weatherLon = longitude,
+                        isWeatherSyncEnabled = true
+                    )
+                    repository.savePreferences(updated)
+                    
+                    // Log the sync event
+                    val wtDesc = WeatherUtils.getWeatherDescription(current.weathercode)
+                    repository.insertLog(
+                        PlaybackLog(
+                            sessionName = "انسجام مع طقس $cityName 🌦️",
+                            activeSounds = "درجة الحرارة: ${current.temperature}°م • حالة الطقس: $wtDesc",
+                            hourOfDay = if (updated.useSimulatedTime) updated.simulatedHour else java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+                            isUserTriggered = true
+                        )
+                    )
+                    
+                    notifyPrefChanged()
+                } else {
+                    weatherError.value = "لم يتم الحصول على معلومات الطقس من الخادم."
+                }
+            } catch (e: Exception) {
+                weatherError.value = "فشل تحديث الطقس: تأكد من الاتصال بالإنترنت."
+            } finally {
+                weatherLoading.value = false
+            }
+        }
+    }
+
+    fun toggleWeatherSync(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            
+            val updated = currentPref.copy(isWeatherSyncEnabled = enabled)
+            if (enabled && currentPref.weatherCode == null) {
+                // Fetch Riyadh by default initially so there's valid weather code instantly
+                syncWeather(24.7136, 46.6753, "الرياض")
+                return@launch
+            }
+            
+            repository.savePreferences(updated)
+            
+            // Log turn on/off
+            repository.insertLog(
+                PlaybackLog(
+                    sessionName = if (enabled) "تفعيل التناغم مع الطقس 🟢" else "إيقاف التناغم مع الطقس 🔴",
+                    activeSounds = if (enabled) "يتم جلب حالة الجو ومطابقتها بأصوات الطبيعة تلقائياً" else "العودة للجدول الزمني التلقائي أو التوليفات اليدوية",
+                    hourOfDay = if (updated.useSimulatedTime) updated.simulatedHour else java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+                    isUserTriggered = true
+                )
+            )
+            
+            notifyPrefChanged()
+        }
+    }
+
+    fun detectUserLocationAndSync(context: Context) {
+        viewModelScope.launch {
+            weatherLoading.value = true
+            weatherError.value = null
+            
+            try {
+                val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+                if (locationManager == null) {
+                    weatherError.value = "ميزة الموقع الجغرافي غير مدعومة على هذا الجهاز."
+                    weatherLoading.value = false
+                    return@launch
+                }
+                
+                // Check permissions
+                val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                
+                if (!hasFine && !hasCoarse) {
+                    weatherError.value = "الرجاء منح صلاحيات الموقع الجغرافي أولاً."
+                    weatherLoading.value = false
+                    return@launch
+                }
+
+                // Retrieve last known location
+                val gpsLocation = try { locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER) } catch (e: SecurityException) { null }
+                val netLocation = try { locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER) } catch (e: SecurityException) { null }
+                
+                val bestLocation = gpsLocation ?: netLocation
+                
+                if (bestLocation != null) {
+                    val lat = bestLocation.latitude
+                    val lon = bestLocation.longitude
+                    
+                    var resolvedCityName = "موقعي الحالي"
+                    try {
+                        val geoCoder = android.location.Geocoder(context, java.util.Locale.getDefault())
+                        val addresses = geoCoder.getFromLocation(lat, lon, 1)
+                        if (!addresses.isNullOrEmpty()) {
+                            val locality = addresses[0].locality
+                            val adminArea = addresses[0].adminArea
+                            resolvedCityName = locality ?: adminArea ?: "موقعي"
+                        }
+                    } catch (e: Exception) {
+                        // ignore geocoder issues
+                    }
+                    
+                    syncWeather(lat, lon, resolvedCityName)
+                } else {
+                    // Try dynamic update
+                    var locationFound = false
+                    val locationListener = object : android.location.LocationListener {
+                        override fun onLocationChanged(location: android.location.Location) {
+                            if (!locationFound) {
+                                locationFound = true
+                                syncWeather(location.latitude, location.longitude, "موقعي الدقيق")
+                                try { locationManager.removeUpdates(this) } catch (e: Exception) {}
+                            }
+                        }
+                    }
+                    
+                    val providerName = if (locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+                        android.location.LocationManager.NETWORK_PROVIDER
+                    } else if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                        android.location.LocationManager.GPS_PROVIDER
+                    } else {
+                        null
+                    }
+                    
+                    if (providerName != null) {
+                        try {
+                            locationManager.requestLocationUpdates(providerName, 1000L, 1f, locationListener)
+                            // timeout after 6 seconds to prevent infinitely waiting
+                            kotlinx.coroutines.delay(6000)
+                            if (!locationFound) {
+                                locationManager.removeUpdates(locationListener)
+                                syncWeather(24.7136, 46.6753, "الرياض (موقع افتراضي)")
+                            }
+                        } catch (e: SecurityException) {
+                            weatherError.value = "صلاحيات الوصول للموقع مرفوضة."
+                            weatherLoading.value = false
+                        }
+                    } else {
+                        syncWeather(24.7136, 46.6753, "الرياض (تلقائي)")
+                    }
+                }
+            } catch (e: Exception) {
+                syncWeather(24.7136, 46.6753, "الرياض (تلقائي)")
+            }
         }
     }
 

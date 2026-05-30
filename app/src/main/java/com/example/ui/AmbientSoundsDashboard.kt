@@ -1,5 +1,7 @@
 package com.example.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
@@ -46,6 +48,8 @@ fun AmbientSoundsDashboard(
     val pref by viewModel.preferences.collectAsStateWithLifecycle()
     val logs by viewModel.playbackLogs.collectAsStateWithLifecycle()
     val playlists by viewModel.customPlaylists.collectAsStateWithLifecycle()
+    val weatherLoading by viewModel.weatherLoading.collectAsStateWithLifecycle()
+    val weatherError by viewModel.weatherError.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     
@@ -167,6 +171,16 @@ fun AmbientSoundsDashboard(
                 },
                 onDeletePlaylist = { playlist -> viewModel.deletePlaylist(playlist) },
                 onUpdateVolumeFactor = { factor -> viewModel.updatePlaylistVolumeFactor(factor) }
+            )
+
+            // Weather & Location Synchronization Section
+            WeatherSyncCard(
+                pref = pref,
+                weatherLoading = weatherLoading,
+                weatherError = weatherError,
+                onToggleSync = { enabled -> viewModel.toggleWeatherSync(enabled) },
+                onDetectLocation = { viewModel.detectUserLocationAndSync(context) },
+                onSelectCity = { lat, lon, name -> viewModel.syncWeather(lat, lon, name) }
             )
 
             // 5. THE 24-HOUR TIMELINE SCHEDULE PRESET (User requirement)
@@ -1649,5 +1663,302 @@ fun MixSliderItem(
             ),
             modifier = Modifier.testTag(tag)
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WeatherSyncCard(
+    pref: AppPreference,
+    weatherLoading: Boolean,
+    weatherError: String?,
+    onToggleSync: (Boolean) -> Unit,
+    onDetectLocation: () -> Unit,
+    onSelectCity: (Double, Double, String) -> Unit
+) {
+    val context = LocalContext.current
+    
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (fineGranted || coarseGranted) {
+            onDetectLocation()
+        }
+    }
+
+    val ecosystemPresets = listOf(
+        Triple("الرياض 🇸🇦", Pair(24.7136, 46.6753), "الرياض"),
+        Triple("القاهرة 🇪🇬", Pair(30.0444, 31.2357), "القاهرة"),
+        Triple("مكة المكرمة 🕋", Pair(21.3891, 39.8579), "مكة المكرمة"),
+        Triple("ضباب لندن 🇬🇧", Pair(51.5074, -0.1278), "لندن"),
+        Triple("الأمازون المطير 🌳", Pair(-3.4653, -62.2159), "الأمازون"),
+        Triple("جبل أثوس القديم 🏔️", Pair(40.2604, 24.2255), "جبل أثوس"),
+        Triple("الصقيع القطبي ❄️", Pair(90.0, 0.0), "القطب الشمالي")
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("weather_sync_card"),
+        colors = CardDefaults.cardColors(containerColor = NaturalCardBg),
+        border = BorderStroke(1.dp, NaturalBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "الانسجام البيئي مع الطقس الكوني 🌦️🛰️",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = NaturalPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        text = "اربط مستويات الأصوات بحالة الطقس المباشرة لموقعك أو لبقاع طبيعية مذهلة",
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 11.sp),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = NaturalPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Main Switch to Toggle Active Weather Sync Mode
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(NaturalNavBg)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "مزامنة الأصوات مع طقس الجو الحالي 🟢",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = if (pref.isWeatherSyncEnabled) NaturalPrimary else NaturalText,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        text = if (pref.isWeatherSyncEnabled) "نشط (يتحكم الطقس الخارجي بآلة الأصوات ويُلغي الجدول التلقائي)" else "معطّل (يعمل بالجدول الزمني التلقائي أو القوائم اليدوية)",
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 10.sp),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                Switch(
+                    checked = pref.isWeatherSyncEnabled,
+                    onCheckedChange = onToggleSync,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = NaturalPrimary,
+                        uncheckedThumbColor = NaturalSubtext,
+                        uncheckedTrackColor = NaturalBorder
+                    ),
+                    modifier = Modifier.testTag("weather_sync_toggle")
+                )
+            }
+
+            // Weather details representation
+            if (pref.weatherCode != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, NaturalBorder, RoundedCornerShape(8.dp))
+                        .background(NaturalCardBg)
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "الموقع الحالي المنسجم: ${pref.weatherCity}",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = NaturalText, fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "الإحداثيات: ${String.format(Locale.getDefault(), "%.3f", pref.weatherLat)}، ${String.format(Locale.getDefault(), "%.3f", pref.weatherLon)}",
+                                style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 10.sp)
+                            )
+                        }
+
+                        // Temp Badge
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = NaturalPrimary.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, NaturalPrimary.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "${pref.weatherTemp ?: 20.0f}° م",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = NaturalPrimary, fontWeight = FontWeight.Bold),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 10.dp), color = NaturalBorder)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = NaturalAccentBright,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "حالة الطقس المباشرة वहाँ:",
+                                style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = com.example.data.WeatherUtils.getWeatherDescription(pref.weatherCode),
+                                style = MaterialTheme.typography.bodyMedium.copy(color = NaturalText, fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Contextual Sound translation guide
+                    val translationExplanation = when (pref.weatherCode) {
+                        51, 53, 55, 61, 63, 65, 80, 81, 82 -> "🌧️ محاكاة هطول المطر: يتم تفعيل أصوات أمطار الغروب المتساقطة بنسبة عالية (80%) تلقائياً بمستويات تحاكي الخارج."
+                        95, 96, 99 -> "⛈️ عاصفة طبيعية متكاملة: هدير الرياح التلالية العاتية بنسبة (85%) يمتزج تماماً بقرع قطرات المطر الشفافة مع عواء خفيف بالخلفية."
+                        45, 48 -> "🌫️ أجواء الأثير الضبابية: تخفت معها أصوات الطيور وتنشط نسائم رياح التلال ممتزجة بصخب الذئاب الخافت لمزاج ضبابي عميق."
+                        else -> "☀️ أجواء صافية هادئة: تطلق العنان لتغاريد عصافير الصباح الباكر (70%) وسكينة هدير الشلال اللطيف في انسجام تام."
+                    }
+
+                    Text(
+                        text = translationExplanation,
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalAccentBright, fontSize = 11.sp, lineHeight = 14.sp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(NaturalNavBg)
+                            .padding(8.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Action: Detect location button or progress state
+            if (weatherLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = NaturalPrimary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        permissionLauncher.launch(
+                            arrayOf(
+                                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                android.Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NaturalPrimary,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("detect_location_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "تحديد موقعي التلقائي بالقمر الصناعي 🛰️",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+
+            // Error display if any
+            if (weatherError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = weatherError,
+                    style = MaterialTheme.typography.bodySmall.copy(color = Color.Red, textAlign = TextAlign.Center),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Ecosystem Presets grid
+            Text(
+                text = "أو سافر ذهنياً وانسجم مع طقس بيئات مذهلة 🌍:",
+                style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontWeight = FontWeight.SemiBold)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ecosystemPresets.forEach { (title, coords, cityName) ->
+                    val isSelected = pref.weatherCity == cityName && pref.isWeatherSyncEnabled
+                    
+                    Surface(
+                        modifier = Modifier
+                            .clickable { onSelectCity(coords.first, coords.second, cityName) }
+                            .testTag("PresetCity_${cityName}"),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) NaturalPrimary.copy(alpha = 0.3f) else NaturalNavBg,
+                        border = BorderStroke(1.dp, if (isSelected) NaturalPrimary else Color.Transparent)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = if (isSelected) NaturalPrimary else NaturalText,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }

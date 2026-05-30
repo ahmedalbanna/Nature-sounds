@@ -209,7 +209,7 @@ class AmbientSoundService : Service() {
                         minute = calendar.get(Calendar.MINUTE)
                     }
 
-                    // Determine schedule playbacks or custom playlist playbacks
+                    // Determine schedule playbacks or custom playlist playbacks or live weather sync
                     val activePlaylist = pref.activePlaylistId?.let { repository.getPlaylistById(it) }
                     
                     val birdsTarget: Float
@@ -219,7 +219,48 @@ class AmbientSoundService : Service() {
                     val howlTarget: Float
                     val activeSessionName: String
 
-                    if (activePlaylist != null) {
+                    if (pref.isWeatherSyncEnabled && pref.weatherCode != null) {
+                        val code = pref.weatherCode
+                        val city = pref.weatherCity ?: "طبيعتك"
+                        val temp = pref.weatherTemp ?: 20.0f
+                        val desc = com.example.data.WeatherUtils.getWeatherDescription(code)
+                        activeSessionName = "تناغم الطقس المباشر 🌦️: $city ($desc، $temp°م)"
+                        
+                        when (code) {
+                            // Rain codes: 51, 53, 55, 61, 63, 65, 80, 81, 82
+                            51, 53, 55, 61, 63, 65, 80, 81, 82 -> {
+                                birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else 0.10f
+                                waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else 0.20f
+                                windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else 0.35f
+                                rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else 0.80f
+                                howlTarget = if (manualPreviews[NatureSoundSynth.SoundType.HOWL] == true) 0.85f else 0.00f
+                            }
+                            // Thunderstorm codes: 95, 96, 99
+                            95, 96, 99 -> {
+                                birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else 0.00f
+                                waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else 0.40f
+                                windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else 0.85f
+                                rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else 0.90f
+                                howlTarget = if (manualPreviews[NatureSoundSynth.SoundType.HOWL] == true) 0.85f else 0.15f
+                            }
+                            // Fog: 45, 48
+                            45, 48 -> {
+                                birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else 0.15f
+                                waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else 0.35f
+                                windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else 0.20f
+                                rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else 0.05f
+                                howlTarget = if (manualPreviews[NatureSoundSynth.SoundType.HOWL] == true) 0.85f else 0.25f
+                            }
+                            // Clear / Partly cloudy/all others
+                            else -> {
+                                birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else 0.70f
+                                waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else 0.30f
+                                windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else 0.15f
+                                rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else 0.00f
+                                howlTarget = if (manualPreviews[NatureSoundSynth.SoundType.HOWL] == true) 0.85f else 0.00f
+                            }
+                        }
+                    } else if (activePlaylist != null) {
                         val factor = pref.playlistVolumeFactor
                         birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else activePlaylist.birdsVolume * factor
                         waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else activePlaylist.waterfallVolume * factor
