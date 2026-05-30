@@ -57,4 +57,23 @@ class ExampleUnitTest {
     
     assertEquals(0.5f, fadeFactor, 0.001f)
   }
+
+  @Test
+  fun testScheduleGeneratesOver100UniqueStates() {
+    val service = com.example.service.AmbientSoundService()
+    val uniqueStates = mutableSetOf<String>()
+    
+    // Traverse the 24 hours and 60 minutes in 10-minute intervals
+    // 24 hours * 6 intervals per hour = 144 total intervals
+    for (hour in 0..23) {
+      for (minute in 0..59 step 10) {
+        val state = service.determineSchedule(hour, minute)
+        uniqueStates.add(state.sessionName)
+      }
+    }
+    
+    // Verify that the generated set of distinct ambient sounds & names contains exactly 144 unique entries, which is > 100!
+    assertTrue("Should contain over 100 unique states, actual: ${uniqueStates.size}", uniqueStates.size > 100)
+    assertEquals(144, uniqueStates.size)
+  }
 }

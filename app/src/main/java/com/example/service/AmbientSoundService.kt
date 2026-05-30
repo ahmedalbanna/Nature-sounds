@@ -409,83 +409,118 @@ class AmbientSoundService : Service() {
         val howlActive: Boolean
     )
 
-    private fun determineSchedule(hour: Int, minute: Int): ScheduleState {
-        // Core schedule timeline:
-        // 06:00 - 07:00 -> Birds Forest Symphony (عصافير 100%، شلال 20%، رياح 30%)
-        // 07:00 - 12:00 -> SILENCE GAP (فراغ هدوء تام)
-        // 12:00 - 13:00 -> Deep Waterfall (شلال 100%، رياح 40%)
-        // 13:00 - 17:00 -> SILENCE GAP (فراغ هدوء منتصف النهار)
-        // 17:00 - 18:00 -> Sunset Rain (مطر 100%، رياح 50%)
-        // 18:00 - 03:00 -> SILENCE GAP (فراغ هدوء الليل الأول)
-        // 03:00 - 03:01 -> Wolf Howling for exactly 1 minute! (عواء 100%)
-        // 03:01 - 06:00 -> SILENCE GAP (فراغ هدوء الفجر)
+    internal fun determineSchedule(hour: Int, minute: Int): ScheduleState {
+        // We define 24 base location categories representing hourly natural backdrops
+        val baseLocations = arrayOf(
+            "بحيرة الهدوء وسديم النجوم",       // Hour 0
+            "جوف الليل والضباب الفضي",          // Hour 1
+            "عمق الوادي المظلم وهمس الجندب",       // Hour 2
+            "مرتفعات الرياح وعقبان الصخر",        // Hour 3
+            "سحر ما قبل الفجر وسكون الكنف",       // Hour 4
+            "أول تنفس للغابة وسكينة الأيك",       // Hour 5
+            "سيمفونية الطيور وتحيات الشروق",      // Hour 6
+            "ندى الصباح الباكر فوق المراعي",      // Hour 7
+            "استيقاظ البراري وغزلان الجبل",       // Hour 8
+            "أشعة الضحى الذهبية فوق التلال",      // Hour 9
+            "خرير جداول المرتفعات المترقرقة",      // Hour 10
+            "جداول الغابة الكثيفة والظلال",       // Hour 11
+            "ذروة هدير الشلالات الكونية العذبة",     // Hour 12
+            "رذاذ المياه المنعش تحت الشمس",       // Hour 13
+            "نسائم الظهيرة المعتدلة بين الربى",      // Hour 14
+            "سكون القيلولة في الواحات المخضرة",    // Hour 15
+            "سحب العصر وتجمع رياح تشرين",       // Hour 16
+            "أمطار الغروب الهادئة والنسيم",       // Hour 17
+            "رائحة الأرض المبتلة بعد المطر",       // Hour 18
+            "ديمومة الأوراق وسكون ما بعد العاصفة",   // Hour 19
+            "مساء الهضاب وبداية جلباب الليل",      // Hour 20
+            "رياح الجبال الباردة والرياح العاتية",   // Hour 21
+            "همهمات السكون وعواء الذئب القاصي",     // Hour 22
+            "سكون الوادي الفسيح وسدول الليل"        // Hour 23
+        )
 
+        // We define 6 segment phases for every 10 minutes, generating 24 * 6 = 144 unique states/sounds
+        val phases = arrayOf(
+            "المرحلة الأولى: الصعود المعنوي والتمهيد التدريجي للأثير",
+            "المرحلة الثانية: التناغم المتوازن وذروة التبلور الصوتي",
+            "المرحلة الثالثة: الاندماج الكامل والتشبع الطبيعي للأصوات",
+            "المرحلة الرابعة: الارتخاء الرقيق والتدرج نحو المسار التراكمي",
+            "المرحلة الخامسة: النسمات الهامسة والانجلاء الهادئ للأجواء",
+            "المرحلة السادسة: التحول السلس والتأهب للإيقاع الطبيعي القادم"
+        )
+
+        val locationIndex = hour.coerceIn(0, 23)
+        val segIndex = (minute / 10).coerceIn(0, 5)
+
+        val locationName = baseLocations[locationIndex]
+        val phaseName = phases[segIndex]
+        val totalSessionName = "$locationName ($phaseName)"
+
+        // Mathematical wave calculations matching the segment progress to keep it alive
         val progress = minute.toFloat() / 60.0f
         val wave = kotlin.math.sin(progress * kotlin.math.PI).toFloat()
 
-        return when {
-            // 1. Birds Morning Symphony (6:00 AM - 7:00 AM)
-            hour == 6 -> {
-                ScheduleState(
-                    sessionName = "جيل جديد من سيمفونية الصباح المترقية",
-                    birdsVol = 0.20f + 0.70f * wave,
-                    waterfallVol = 0.05f + 0.15f * wave,
-                    windVol = 0.10f + 0.20f * wave,
-                    rainVol = 0f,
-                    howlActive = false
-                )
-            }
-            // 2. Noon Waterfall Session (12:00 PM - 1:00 PM)
-            hour == 12 -> {
-                ScheduleState(
-                    sessionName = "تدفق شلال منتصف النهار المتدرج",
-                    birdsVol = 0f,
-                    waterfallVol = 0.30f + 0.65f * wave,
-                    windVol = 0.15f + 0.25f * wave,
-                    rainVol = 0f,
-                    howlActive = false
-                )
-            }
-            // 3. Sunset Rain Breeze (5:00 PM - 6:00 PM / 17:00 - 18:00)
-            hour == 17 -> {
-                ScheduleState(
-                    sessionName = "رياح ومطر الغروب المتنامي تدريجياً",
-                    birdsVol = 0f,
-                    waterfallVol = 0f,
-                    windVol = 0.20f + 0.35f * wave,
-                    rainVol = 0.15f + 0.80f * wave,
-                    howlActive = false
-                )
-            }
-            // 4. Midnight Wolf Howl Minute (3:00 AM - 3:01 AM)
-            hour == 3 && minute == 0 -> {
-                ScheduleState(
-                    sessionName = "نداء الذئب في عمق سكون الليل",
-                    birdsVol = 0f,
-                    waterfallVol = 0f,
-                    windVol = 0.15f,
-                    rainVol = 0f,
-                    howlActive = true
-                )
-            }
-            // All other times are SILENCE GAPS
-            else -> {
-                val spaceName = when(hour) {
-                    in 7..11 -> "فراغ الصباح (هدوء وسكينة)"
-                    in 13..16 -> "فراغ الظهيرة (راحة وسلام)"
-                    in 18..23 -> "فراغ الليل الهادئ للراحة والنوم"
-                    in 0..2 -> "فراغ جوف الليل الساكن"
-                    else -> "فراغ ما قبل الفجر الروحاني"
-                }
-                ScheduleState(
-                    sessionName = spaceName,
-                    birdsVol = 0f,
-                    waterfallVol = 0f,
-                    windVol = 0f,
-                    rainVol = 0f,
-                    howlActive = false
-                )
-            }
+        // 1. Birds Volume Logic
+        val birdsBase = when (hour) {
+            5 -> 0.4f
+            6 -> 0.8f
+            7 -> 0.7f
+            8 -> 0.5f
+            9 -> 0.3f
+            10, 11 -> 0.2f
+            15, 16 -> 0.25f
+            else -> 0.0f
         }
+        val birdsVol = (birdsBase * (0.5f + 0.5f * wave)).coerceIn(0f, 1f)
+
+        // 2. Waterfall Volume Logic
+        val waterfallBase = when (hour) {
+            11 -> 0.4f
+            12 -> 0.8f
+            13 -> 0.7f
+            14 -> 0.5f
+            15 -> 0.3f
+            9, 10 -> 0.2f
+            16, 17 -> 0.2f
+            else -> 0.08f // Soft ambient background stream
+        }
+        val waterfallVol = (waterfallBase * (0.6f + 0.4f * wave)).coerceIn(0f, 1f)
+
+        // 3. Wind Volume Logic
+        val windBase = when (hour) {
+            13, 14 -> 0.4f
+            15 -> 0.3f
+            16, 17, 18 -> 0.45f
+            19, 20 -> 0.5f
+            21, 22 -> 0.6f
+            23, 0 -> 0.3f
+            1, 2 -> 0.2f
+            else -> 0.15f
+        }
+        val windVol = (windBase * (0.7f + 0.3f * wave)).coerceIn(0.05f, 1f)
+
+        // 4. Rain Volume Logic
+        val rainBase = when (hour) {
+            16 -> 0.3f
+            17 -> 0.75f
+            18 -> 0.5f
+            19 -> 0.25f
+            21, 22 -> 0.15f
+            else -> 0.0f
+        }
+        val rainVol = (rainBase * (0.5f + 0.5f * wave)).coerceIn(0f, 1f)
+
+        // 5. Howl Active Logic (Midnight wolf howling moments)
+        val isNightTime = hour in 21..23 || hour in 0..5
+        // Howl triggers specifically at segment 0 (0-9 minutes) of night hours or hour 3 segment 0
+        val howlActive = (isNightTime && segIndex == 0)
+
+        return ScheduleState(
+            sessionName = totalSessionName,
+            birdsVol = birdsVol,
+            waterfallVol = waterfallVol,
+            windVol = windVol,
+            rainVol = rainVol,
+            howlActive = howlActive
+        )
     }
 }
