@@ -38,11 +38,19 @@ class AmbientSoundService : Service() {
         const val ACTION_FORCE_HOWL = "com.example.action.FORCE_HOWL"
         const val ACTION_REFRESH_PREF = "com.example.action.REFRESH_PREF"
         const val ACTION_TOGGLE_PREVIEW = "com.example.action.TOGGLE_PREVIEW"
+
+        @Volatile
+        private var activeInstance: AmbientSoundService? = null
+
+        fun triggerRustle(intensity: Float) {
+            activeInstance?.synth?.triggerRustle(intensity)
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service onCreate")
+        activeInstance = this
         val database = AppDatabase.getDatabase(this)
         repository = AppRepository(database.appDao())
         
@@ -149,58 +157,62 @@ class AmbientSoundService : Service() {
 
         schedulerJob = serviceScope.launch(Dispatchers.Default) {
             while (isActive) {
-                // Reread preference to know parameters (volume, time simulation, simulated hour)
-                val pref = repository.getPreferencesDirect()
-                synth.masterVolume = pref.masterVolume
+                try {
+                    // Reread preference to know parameters (volume, time simulation, simulated hour)
+                    val pref = repository.getPreferencesDirect()
+                    synth.masterVolume = pref.masterVolume
 
-                // Get Current Hour and Minute
-                val hour: Int
-                val minute: Int
-                if (pref.useSimulatedTime) {
-                    hour = pref.simulatedHour
-                    minute = pref.simulatedMinute
-                } else {
-                    val calendar = Calendar.getInstance()
-                    hour = calendar.get(Calendar.HOUR_OF_DAY)
-                    minute = calendar.get(Calendar.MINUTE)
-                }
+                    // Get Current Hour and Minute
+                    val hour: Int
+                    val minute: Int
+                    if (pref.useSimulatedTime) {
+                        hour = pref.simulatedHour
+                        minute = pref.simulatedMinute
+                    } else {
+                        val calendar = Calendar.getInstance()
+                        hour = calendar.get(Calendar.HOUR_OF_DAY)
+                        minute = calendar.get(Calendar.MINUTE)
+                    }
 
-                // Determine schedule playbacks
-                val schedule = determineSchedule(hour, minute)
-                
-                // Mix in manual previews: if preview is on, force it to 0.8f, otherwise use schedule
-                val birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else schedule.birdsVol
-                val waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else schedule.waterfallVol
-                val windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else schedule.windVol
-                val rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else schedule.rainVol
-                
-                // Set target volumes accordingly
-                synth.setTargetVolume(NatureSoundSynth.SoundType.BIRDS, birdsTarget)
-                synth.setTargetVolume(NatureSoundSynth.SoundType.WATERFALL, waterfallTarget)
-                synth.setTargetVolume(NatureSoundSynth.SoundType.WIND, windTarget)
-                synth.setTargetVolume(NatureSoundSynth.SoundType.RAIN, rainTarget)
-                
-                // If howl schedule is active, force trigger howl once
-                if (schedule.howlActive && !synth.isHowlPlaying()) {
-                    synth.forceHowl()
-                }
+                    // Determine schedule playbacks
+                    val schedule = determineSchedule(hour, minute)
+                    
+                    // Mix in manual previews: if preview is on, force it to 0.8f, otherwise use schedule
+                    val birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else schedule.birdsVol
+                    val waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else schedule.waterfallVol
+                    val windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else schedule.windVol
+                    val rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else schedule.rainVol
+                    
+                    // Set target volumes accordingly
+                    synth.setTargetVolume(NatureSoundSynth.SoundType.BIRDS, birdsTarget)
+                    synth.setTargetVolume(NatureSoundSynth.SoundType.WATERFALL, waterfallTarget)
+                    synth.setTargetVolume(NatureSoundSynth.SoundType.WIND, windTarget)
+                    synth.setTargetVolume(NatureSoundSynth.SoundType.RAIN, rainTarget)
+                    
+                    // If howl schedule is active, force trigger howl once
+                    if (schedule.howlActive && !synth.isHowlPlaying()) {
+                        synth.forceHowl()
+                    }
 
-                // Log session transition to Room in a smart way
-                val activeSessionName = if (manualPreviews.values.any { it }) "جلسة تشغيل ومعاينة مخصصة" else schedule.sessionName
-                if (activeSessionName != lastLoggedSession && !activeSessionName.contains("معاينة")) {
-                    lastLoggedSession = activeSessionName
-                    val log = PlaybackLog(
-                        sessionName = activeSessionName,
-                        activeSounds = getActiveSoundsString(schedule),
-                        hourOfDay = hour,
-                        isUserTriggered = false
-                    )
-                    repository.insertLog(log)
-                }
+                    // Log session transition to Room in a smart way
+                    val activeSessionName = if (manualPreviews.values.any { it }) "جلسة تشغيل ومعاينة مخصصة" else schedule.sessionName
+                    if (activeSessionName != lastLoggedSession && !activeSessionName.contains("معاينة")) {
+                        lastLoggedSession = activeSessionName
+                        val log = PlaybackLog(
+                            sessionName = activeSessionName,
+                            activeSounds = getActiveSoundsString(schedule),
+                            hourOfDay = hour,
+                            isUserTriggered = false
+                        )
+                        repository.insertLog(log)
+                    }
 
-                // Update notification text dynamically
-                withContext(Dispatchers.Main) {
-                    updateNotification(activeSessionName, hour, minute, pref.useSimulatedTime)
+                    // Update notification text dynamically
+                    withContext(Dispatchers.Main) {
+                        updateNotification(activeSessionName, hour, minute, pref.useSimulatedTime)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Exception in scheduler loop", e)
                 }
 
                 delay(1000) // Sleep/delay 1 second
@@ -306,6 +318,9 @@ class AmbientSoundService : Service() {
 
     override fun onDestroy() {
         Log.d(TAG, "Service onDestroy")
+        if (activeInstance == this) {
+            activeInstance = null
+        }
         stopScheduler()
         synth.stop()
         serviceScope.cancel()
@@ -337,14 +352,17 @@ class AmbientSoundService : Service() {
         // 03:00 - 03:01 -> Wolf Howling for exactly 1 minute! (عواء 100%)
         // 03:01 - 06:00 -> SILENCE GAP (فراغ هدوء الفجر)
 
+        val progress = minute.toFloat() / 60.0f
+        val wave = kotlin.math.sin(progress * kotlin.math.PI).toFloat()
+
         return when {
             // 1. Birds Morning Symphony (6:00 AM - 7:00 AM)
             hour == 6 -> {
                 ScheduleState(
-                    sessionName = "سيمفونية الصباح وأصوات العصافير",
-                    birdsVol = 0.85f,
-                    waterfallVol = 0.15f,
-                    windVol = 0.30f,
+                    sessionName = "جيل جديد من سيمفونية الصباح المترقية",
+                    birdsVol = 0.20f + 0.70f * wave,
+                    waterfallVol = 0.05f + 0.15f * wave,
+                    windVol = 0.10f + 0.20f * wave,
                     rainVol = 0f,
                     howlActive = false
                 )
@@ -352,10 +370,10 @@ class AmbientSoundService : Service() {
             // 2. Noon Waterfall Session (12:00 PM - 1:00 PM)
             hour == 12 -> {
                 ScheduleState(
-                    sessionName = "شلال منتصف النهار المنعش",
+                    sessionName = "تدفق شلال منتصف النهار المتدرج",
                     birdsVol = 0f,
-                    waterfallVol = 0.90f,
-                    windVol = 0.35f,
+                    waterfallVol = 0.30f + 0.65f * wave,
+                    windVol = 0.15f + 0.25f * wave,
                     rainVol = 0f,
                     howlActive = false
                 )
@@ -363,11 +381,11 @@ class AmbientSoundService : Service() {
             // 3. Sunset Rain Breeze (5:00 PM - 6:00 PM / 17:00 - 18:00)
             hour == 17 -> {
                 ScheduleState(
-                    sessionName = "مطر ورياح الغروب الداهنة",
+                    sessionName = "رياح ومطر الغروب المتنامي تدريجياً",
                     birdsVol = 0f,
                     waterfallVol = 0f,
-                    windVol = 0.50f,
-                    rainVol = 0.85f,
+                    windVol = 0.20f + 0.35f * wave,
+                    rainVol = 0.15f + 0.80f * wave,
                     howlActive = false
                 )
             }

@@ -1,5 +1,8 @@
 package com.example
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.example.ui.theme.MyApplicationTheme
@@ -25,9 +28,9 @@ class GreetingScreenshotTest {
       MyApplicationTheme { 
         androidx.compose.material3.Surface(
           color = androidx.compose.material3.MaterialTheme.colorScheme.background,
-          modifier = androidx.compose.ui.Modifier.fillMaxSize()
+          modifier = Modifier.fillMaxSize()
         ) {
-          androidx.compose.material3.Box(
+          Box(
             contentAlignment = androidx.compose.ui.Alignment.Center
           ) {
             androidx.compose.material3.Text(

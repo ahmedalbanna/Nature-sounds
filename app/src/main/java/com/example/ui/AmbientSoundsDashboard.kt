@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.AppPreference
 import com.example.data.NatureSoundSynth
 import com.example.data.PlaybackLog
@@ -42,8 +43,8 @@ fun AmbientSoundsDashboard(
     viewModel: AmbientSoundsViewModel,
     modifier: Modifier = Modifier
 ) {
-    val pref by viewModel.preferences.collectAsState()
-    val logs by viewModel.playbackLogs.collectAsState()
+    val pref by viewModel.preferences.collectAsStateWithLifecycle()
+    val logs by viewModel.playbackLogs.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     
@@ -65,6 +66,13 @@ fun AmbientSoundsDashboard(
             windPreview = false
             rainPreview = false
             howlPreview = false
+        }
+    }
+
+    // Trigger subtle leaf rustling sounds upon scrolling the gorgeous dashboard screen
+    LaunchedEffect(scrollState.value) {
+        if (pref.isServiceRunning && scrollState.isScrollInProgress) {
+            com.example.service.AmbientSoundService.triggerRustle(0.12f)
         }
     }
 
@@ -384,7 +392,12 @@ fun TimeSimulatorCard(
 
                 Slider(
                     value = pref.simulatedHour.toFloat(),
-                    onValueChange = { onTimeChanged(it.toInt(), 0) },
+                    onValueChange = { 
+                        onTimeChanged(it.toInt(), 0)
+                        if (pref.isServiceRunning) {
+                            com.example.service.AmbientSoundService.triggerRustle(0.12f)
+                        }
+                    },
                     valueRange = 0f..23f,
                     steps = 22,
                     colors = SliderDefaults.colors(
@@ -471,7 +484,12 @@ fun SoundMixerCard(
             }
             Slider(
                 value = pref.masterVolume,
-                onValueChange = onMasterVolumeChanged,
+                onValueChange = { 
+                    onMasterVolumeChanged(it)
+                    if (pref.isServiceRunning) {
+                        com.example.service.AmbientSoundService.triggerRustle(0.12f)
+                    }
+                },
                 colors = SliderDefaults.colors(
                     thumbColor = NaturalPrimary,
                     activeTrackColor = NaturalPrimary

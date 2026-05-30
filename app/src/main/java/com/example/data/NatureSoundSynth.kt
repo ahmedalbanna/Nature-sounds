@@ -48,6 +48,7 @@ class NatureSoundSynth {
     private val windGen = WindGenerator()
     private val rainGen = RainGenerator()
     private val howlGen = HowlGenerator()
+    private val leavesGen = RustlingLeavesGenerator()
 
     fun start() {
         if (isPlaying) return
@@ -144,6 +145,10 @@ class NatureSoundSynth {
         return howlGen.isPlaying()
     }
 
+    fun triggerRustle(intensity: Float) {
+        leavesGen.trigger(intensity)
+    }
+
     // Single buffer synthesis loop
     private fun renderLoop() {
         val bufferCapacity = 512
@@ -185,12 +190,16 @@ class NatureSoundSynth {
                 // Howl can run independently if forced/active
                 val sHowl = howlGen.nextSample() // internal state handles active vs silent
                 
+                // Active interactive rustling leaves sound
+                val sLeaves = leavesGen.nextSample()
+                
                 // Mix tracks with volume
                 var mixed = (sBirds * bVol) +
                         (sWaterfall * wVol * 0.7f) +  // slightly dampen base rumble
                         (sWind * ndVol * 0.8f) +
                         (sRain * rVol * 0.8f) +
-                        (sHowl) // howl already has its internal trigger amplitude envelope
+                        sHowl +
+                        sLeaves
 
                 // Apply master volume
                 mixed *= masterVolume
@@ -399,6 +408,53 @@ class NatureSoundSynth {
 
             howlTimer--
             return sin(howlAngle) * envelope
+        }
+    }
+
+    private class RustlingLeavesGenerator {
+        private var decay = 0f
+        private var lastOut = 0f
+        private var clickTime = 0
+        private var clickAngle = 0f
+
+        fun trigger(intensity: Float) {
+            decay = if (decay <= 0f) {
+                intensity.coerceIn(0f, 1f)
+            } else {
+                (decay + intensity * 0.4f).coerceIn(0f, 1.0f)
+            }
+        }
+
+        fun nextSample(): Float {
+            if (decay < 0.001f) {
+                decay = 0f
+                return 0f
+            }
+
+            // High-pass filtered noise for dry leaves friction
+            val white = ThreadLocalRandom.current().nextFloat() * 2f - 1f
+            val highPass = white - lastOut
+            lastOut = white
+
+            // Rustle clicks representing crisp leaves touching each other
+            if (clickTime <= 0) {
+                if (ThreadLocalRandom.current().nextFloat() < 0.04f * decay) {
+                    clickTime = ThreadLocalRandom.current().nextInt(15, 60)
+                    clickAngle = 0f
+                }
+            }
+
+            var click = 0f
+            if (clickTime > 0) {
+                clickAngle += 1.9f // high-frequency rustle sound chirp
+                click = sin(clickAngle) * 0.3f
+                clickTime--
+            }
+
+            // High decay rate since sample rate is 22050Hz (tapers down within ~500ms)
+            decay *= 0.9996f
+
+            return ((highPass * 0.08f) + (click * 0.04f)) * decay
         }
     }
 }
