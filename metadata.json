@@ -1,0 +1,6 @@
+{
+  "name": "أصوات الطبيعة",
+  "description": "مشغل أصوات الطبيعة الهادئة في الخلفية كالعصافير والشلال والمطر والرياح مع جدول تشغيل متكيف ومحاكاة تفاعلية للوقت.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
