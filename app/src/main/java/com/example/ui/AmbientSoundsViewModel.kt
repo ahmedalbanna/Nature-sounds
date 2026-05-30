@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class AmbientSoundsViewModel(
@@ -28,6 +29,55 @@ class AmbientSoundsViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AppPreference()
         )
+
+    val customPlaylists: StateFlow<List<CustomPlaylist>> = repository.allPlaylists
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    init {
+        viewModelScope.launch {
+            try {
+                val list = repository.allPlaylists.first()
+                if (list.isEmpty()) {
+                    repository.insertPlaylist(
+                        CustomPlaylist(
+                            name = "ملاذ الغابة الممطرة 🌧️🌲",
+                            birdsVolume = 0.40f,
+                            waterfallVolume = 0.20f,
+                            windVolume = 0.35f,
+                            rainVolume = 0.70f,
+                            howlVolume = 0.00f
+                        )
+                    )
+                    repository.insertPlaylist(
+                        CustomPlaylist(
+                            name = "عاصفة البراري العاتية ⚡🐺",
+                            birdsVolume = 0.00f,
+                            waterfallVolume = 0.10f,
+                            windVolume = 0.85f,
+                            rainVolume = 0.60f,
+                            howlVolume = 0.50f
+                        )
+                    )
+                    repository.insertPlaylist(
+                        CustomPlaylist(
+                            name = "سكينة الشلال المتدفق 🏔️🌊",
+                            birdsVolume = 0.15f,
+                            waterfallVolume = 0.80f,
+                            windVolume = 0.25f,
+                            rainVolume = 0.00f,
+                            howlVolume = 0.00f
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                // Ignore initialization errors
+            }
+        }
+    }
 
     // History logs
     val playbackLogs: StateFlow<List<PlaybackLog>> = repository.allLogs
@@ -178,6 +228,81 @@ class AmbientSoundsViewModel(
                     isUserTriggered = true
                 )
             )
+            notifyPrefChanged()
+        }
+    }
+
+    fun savePlaylist(name: String, birds: Float, waterfall: Float, wind: Float, rain: Float, howl: Float) {
+        viewModelScope.launch {
+            val playlist = CustomPlaylist(
+                name = name,
+                birdsVolume = birds,
+                waterfallVolume = waterfall,
+                windVolume = wind,
+                rainVolume = rain,
+                howlVolume = howl
+            )
+            val playlistId = repository.insertPlaylist(playlist).toInt()
+            
+            // Log creation
+            val currentPref = repository.getPreferencesDirect()
+            repository.insertLog(
+                PlaybackLog(
+                    sessionName = "إنشاء قائمة تشغيل مخصصة ✨",
+                    activeSounds = "الاسم: $name (تضم أصوات مخصصة بمستويات متباينة)",
+                    hourOfDay = if (currentPref.useSimulatedTime) currentPref.simulatedHour else java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+                    isUserTriggered = true
+                )
+            )
+            
+            // Auto select newly created playlist
+            selectPlaylist(playlistId)
+        }
+    }
+
+    fun deletePlaylist(playlist: CustomPlaylist) {
+        viewModelScope.launch {
+            repository.deletePlaylist(playlist)
+            val currentPref = repository.getPreferencesDirect()
+            if (currentPref.activePlaylistId == playlist.id) {
+                selectPlaylist(null)
+            }
+        }
+    }
+
+    fun selectPlaylist(playlistId: Int?) {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            val updated = currentPref.copy(activePlaylistId = playlistId)
+            repository.savePreferences(updated)
+            
+            val logName: String
+            val logDetail: String
+            if (playlistId != null) {
+                val plName = repository.getPlaylistById(playlistId)?.name ?: "جديدة"
+                logName = "تنشيط قائمة تشغيل: $plName 🎵"
+                logDetail = "تجاوز الجدول الزمني وبدء الاستماع لتوليفة الأصوات المصممة خصيصاً"
+            } else {
+                logName = "العودة للجدول الزمني التلقائي 🗓️"
+                logDetail = "مزامنة الأصوات وحساب مستوياتها طبيعياً مع مرور الساعات"
+            }
+            
+            repository.insertLog(
+                PlaybackLog(
+                    sessionName = logName,
+                    activeSounds = logDetail,
+                    hourOfDay = if (updated.useSimulatedTime) updated.simulatedHour else java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+                    isUserTriggered = true
+                )
+            )
+            notifyPrefChanged()
+        }
+    }
+
+    fun updatePlaylistVolumeFactor(factor: Float) {
+        viewModelScope.launch {
+            val currentPref = repository.getPreferencesDirect()
+            repository.savePreferences(currentPref.copy(playlistVolumeFactor = factor))
             notifyPrefChanged()
         }
     }

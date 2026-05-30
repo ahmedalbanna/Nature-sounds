@@ -209,23 +209,41 @@ class AmbientSoundService : Service() {
                         minute = calendar.get(Calendar.MINUTE)
                     }
 
-                    // Determine schedule playbacks
-                    val schedule = determineSchedule(hour, minute)
+                    // Determine schedule playbacks or custom playlist playbacks
+                    val activePlaylist = pref.activePlaylistId?.let { repository.getPlaylistById(it) }
                     
-                    // Mix in manual previews: if preview is on, force it to 0.8f, otherwise use schedule
-                    val birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else schedule.birdsVol
-                    val waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else schedule.waterfallVol
-                    val windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else schedule.windVol
-                    val rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else schedule.rainVol
-                    
-                    // Pre-defined night howl logic
-                    val isNightHour = hour in 21..23 || hour in 0..5
-                    val shouldIntroduceNightHowl = pref.introduceNightHowls && isNightHour && (minute == 0)
-                    
-                    val howlTarget = when {
-                        manualPreviews[NatureSoundSynth.SoundType.HOWL] == true -> 0.85f
-                        schedule.howlActive || shouldIntroduceNightHowl -> 0.70f
-                        else -> 0.0f
+                    val birdsTarget: Float
+                    val waterfallTarget: Float
+                    val windTarget: Float
+                    val rainTarget: Float
+                    val howlTarget: Float
+                    val activeSessionName: String
+
+                    if (activePlaylist != null) {
+                        val factor = pref.playlistVolumeFactor
+                        birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else activePlaylist.birdsVolume * factor
+                        waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else activePlaylist.waterfallVolume * factor
+                        windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else activePlaylist.windVolume * factor
+                        rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else activePlaylist.rainVolume * factor
+                        howlTarget = if (manualPreviews[NatureSoundSynth.SoundType.HOWL] == true) 0.85f else activePlaylist.howlVolume * factor
+                        activeSessionName = "قائمة تشغيل: ${activePlaylist.name}"
+                    } else {
+                        val schedule = determineSchedule(hour, minute)
+                        birdsTarget = if (manualPreviews[NatureSoundSynth.SoundType.BIRDS] == true) 0.85f else schedule.birdsVol
+                        waterfallTarget = if (manualPreviews[NatureSoundSynth.SoundType.WATERFALL] == true) 0.85f else schedule.waterfallVol
+                        windTarget = if (manualPreviews[NatureSoundSynth.SoundType.WIND] == true) 0.85f else schedule.windVol
+                        rainTarget = if (manualPreviews[NatureSoundSynth.SoundType.RAIN] == true) 0.85f else schedule.rainVol
+                        
+                        val isNightHour = hour in 21..23 || hour in 0..5
+                        val shouldIntroduceNightHowl = pref.introduceNightHowls && isNightHour && (minute == 0)
+                        
+                        howlTarget = when {
+                            manualPreviews[NatureSoundSynth.SoundType.HOWL] == true -> 0.85f
+                            schedule.howlActive || shouldIntroduceNightHowl -> 0.70f
+                            else -> 0.0f
+                        }
+                        
+                        activeSessionName = if (manualPreviews.values.any { it }) "جلسة تشغيل ومعاينة مخصصة" else if (pref.isDeepSleepTimerActive) "وضع النوم العميق الخافت المتلاشي" else schedule.sessionName
                     }
                     
                     // Set target volumes accordingly
@@ -240,13 +258,12 @@ class AmbientSoundService : Service() {
                         synth.forceHowl()
                         
                         serviceScope.launch(Dispatchers.IO) {
-                            val logReason = if (shouldIntroduceNightHowl) "عواء بري دوري خافت (النوم العميق)" else "عواء دورة الليل المبرمجة"
                             val currentPref = repository.getPreferencesDirect()
                             val curHour = if (currentPref.useSimulatedTime) currentPref.simulatedHour else Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                             repository.insertLog(
                                 PlaybackLog(
-                                    sessionName = "$logReason 🐺",
-                                    activeSounds = "عواء ذئب هادئ متلاشي يرتفع ثم ينخمد بدقة لنمط نوم صحي",
+                                    sessionName = "عواء ذئاب خافت ومميز 🐺",
+                                    activeSounds = "عواء مدمج في أثير الأصوات لضمان الطمأنينية والعمق الطبيعي",
                                     hourOfDay = curHour,
                                     isUserTriggered = false
                                 )
@@ -254,13 +271,21 @@ class AmbientSoundService : Service() {
                         }
                     }
 
+                    // Create log details based on actual track volumes
+                    val activeSoundsList = mutableListOf<String>()
+                    if (birdsTarget > 0.05f) activeSoundsList.add("عصافير")
+                    if (waterfallTarget > 0.05f) activeSoundsList.add("شلال")
+                    if (windTarget > 0.05f) activeSoundsList.add("رياح")
+                    if (rainTarget > 0.05f) activeSoundsList.add("مطر")
+                    if (howlTarget > 0.05f) activeSoundsList.add("عواء")
+                    val activeSoundsDesc = activeSoundsList.joinToString("، ").ifEmpty { "صمت مطبق" }
+
                     // Log session transition to Room in a smart way
-                    val activeSessionName = if (manualPreviews.values.any { it }) "جلسة تشغيل ومعاينة مخصصة" else if (pref.isDeepSleepTimerActive) "وضع النوم العميق الخافت المتلاشي" else schedule.sessionName
                     if (activeSessionName != lastLoggedSession && !activeSessionName.contains("معاينة")) {
                         lastLoggedSession = activeSessionName
                         val log = PlaybackLog(
                             sessionName = activeSessionName,
-                            activeSounds = getActiveSoundsString(schedule),
+                            activeSounds = activeSoundsDesc,
                             hourOfDay = hour,
                             isUserTriggered = false
                         )

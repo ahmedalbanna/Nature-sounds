@@ -76,4 +76,21 @@ class ExampleUnitTest {
     assertTrue("Should contain over 100 unique states, actual: ${uniqueStates.size}", uniqueStates.size > 100)
     assertEquals(144, uniqueStates.size)
   }
+
+  @Test
+  fun testCustomPlaylistEntity_defaults() {
+    val playlist = com.example.data.CustomPlaylist(
+        name = "العاصفة المطرية 🌧️",
+        birdsVolume = 0.1f,
+        waterfallVolume = 0.2f,
+        windVolume = 0.3f,
+        rainVolume = 0.8f,
+        howlVolume = 0.5f
+    )
+    assertEquals("العاصفة المطرية 🌧️", playlist.name)
+    assertEquals(0.1f, playlist.birdsVolume, 0.001f)
+    assertEquals(0.2f, playlist.waterfallVolume, 0.001f)
+    assertEquals(0.8f, playlist.rainVolume, 0.001f)
+    assertEquals(0.5f, playlist.howlVolume, 0.001f)
+  }
 }

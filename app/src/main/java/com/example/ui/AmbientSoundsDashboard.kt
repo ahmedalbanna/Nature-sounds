@@ -45,6 +45,7 @@ fun AmbientSoundsDashboard(
 ) {
     val pref by viewModel.preferences.collectAsStateWithLifecycle()
     val logs by viewModel.playbackLogs.collectAsStateWithLifecycle()
+    val playlists by viewModel.customPlaylists.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     
@@ -154,6 +155,18 @@ fun AmbientSoundsDashboard(
                     viewModel.toggleIndependentPreview("HOWL", active)
                 },
                 onMasterVolumeChanged = { viewModel.updateMasterVolume(it) }
+            )
+
+            // Custom Playlists Section
+            PlaylistsCard(
+                pref = pref,
+                playlists = playlists,
+                onSelectPlaylist = { id -> viewModel.selectPlaylist(id) },
+                onSavePlaylist = { name, birds, waterfall, wind, rain, howl ->
+                    viewModel.savePlaylist(name, birds, waterfall, wind, rain, howl)
+                },
+                onDeletePlaylist = { playlist -> viewModel.deletePlaylist(playlist) },
+                onUpdateVolumeFactor = { factor -> viewModel.updatePlaylistVolumeFactor(factor) }
             )
 
             // 5. THE 24-HOUR TIMELINE SCHEDULE PRESET (User requirement)
@@ -1206,5 +1219,435 @@ fun DeepSleepCard(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlaylistsCard(
+    pref: AppPreference,
+    playlists: List<com.example.data.CustomPlaylist>,
+    onSelectPlaylist: (Int?) -> Unit,
+    onSavePlaylist: (String, Float, Float, Float, Float, Float) -> Unit,
+    onDeletePlaylist: (com.example.data.CustomPlaylist) -> Unit,
+    onUpdateVolumeFactor: (Float) -> Unit
+) {
+    var isFormExpanded by remember { mutableStateOf(false) }
+    var playlistName by remember { mutableStateOf("") }
+    var birdsVol by remember { mutableStateOf(0.4f) }
+    var waterfallVol by remember { mutableStateOf(0.0f) }
+    var windVol by remember { mutableStateOf(0.3f) }
+    var rainVol by remember { mutableStateOf(0.5f) }
+    var howlVol by remember { mutableStateOf(0.0f) }
+    
+    val activePlaylist = playlists.find { it.id == pref.activePlaylistId }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("playlists_card"),
+        colors = CardDefaults.cardColors(containerColor = NaturalCardBg),
+        border = BorderStroke(1.dp, NaturalBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "قوائم التشغيل المخصصة 🎵",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            color = NaturalPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        text = "صمّم عوالمك البيئية بنفسك بدلاً من الجدول التلقائي",
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 11.sp)
+                    )
+                }
+                
+                Icon(
+                    imageVector = Icons.Default.List,
+                    contentDescription = null,
+                    tint = NaturalPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Playback Mode selection: Auto Timeline vs custom playlists
+            Text(
+                text = "وضع التشغيل الحالي:",
+                style = MaterialTheme.typography.bodySmall.copy(color = NaturalText, fontWeight = FontWeight.SemiBold)
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Auto Timeline Mode Button
+                val isAutoSelected = pref.activePlaylistId == null
+                Button(
+                    onClick = { onSelectPlaylist(null) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isAutoSelected) NaturalPrimary else NaturalNavBg,
+                        contentColor = if (isAutoSelected) Color.White else NaturalText
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .testTag("timeline_mode_button"),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = "الجدول التلقائي 🗓️",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                // Active Custom Playlist Button (just to show selection state)
+                val isCustomSelected = pref.activePlaylistId != null
+                Button(
+                    onClick = { /* Just indicates style */ },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isCustomSelected) NaturalAccentBright else NaturalNavBg,
+                        contentColor = if (isCustomSelected) Color.Black else NaturalSubtext
+                    ),
+                    enabled = isCustomSelected,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = if (isCustomSelected) "قائمة مفعلة 🟢" else "لم يتم اختيار قائمة",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+
+            // Global Vol for Playlist
+            if (activePlaylist != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(NaturalNavBg)
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "التحكم بالصوت العام للقائمة: ${activePlaylist.name}",
+                            style = MaterialTheme.typography.bodySmall.copy(color = NaturalText, fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "${(pref.playlistVolumeFactor * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall.copy(color = NaturalPrimary, fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    
+                    Slider(
+                        value = pref.playlistVolumeFactor,
+                        onValueChange = onUpdateVolumeFactor,
+                        valueRange = 0f..1f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = NaturalPrimary,
+                            activeTrackColor = NaturalPrimary,
+                            inactiveTrackColor = NaturalBorder
+                        ),
+                        modifier = Modifier.testTag("playlist_global_volume_slider")
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Playlists List
+            Text(
+                text = "قوائم التشغيل المحفوظة:",
+                style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontWeight = FontWeight.SemiBold)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (playlists.isEmpty()) {
+                Text(
+                    text = "لا توجد قوائم تشغيل مخصصة حالياً. استخدم النموذج بالأسفل لإضافة أول توليفة أصوات مخصصة!",
+                    style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, textAlign = TextAlign.Center),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp)
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    playlists.forEach { playlist ->
+                        val isActive = playlist.id == pref.activePlaylistId
+                        
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(
+                                    1.dp,
+                                    if (isActive) NaturalPrimary else Color.Transparent,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .background(if (isActive) NaturalNavBg else NaturalCardBg)
+                                .clickable { onSelectPlaylist(playlist.id) }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = playlist.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        color = if (isActive) NaturalPrimary else NaturalText,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                
+                                // Show badge levels
+                                val activeTones = mutableListOf<String>()
+                                if (playlist.birdsVolume > 0.01f) activeTones.add("🐦 ${(playlist.birdsVolume * 100).toInt()}%")
+                                if (playlist.waterfallVolume > 0.01f) activeTones.add("🌊 ${(playlist.waterfallVolume * 100).toInt()}%")
+                                if (playlist.windVolume > 0.01f) activeTones.add("🍃 ${(playlist.windVolume * 100).toInt()}%")
+                                if (playlist.rainVolume > 0.01f) activeTones.add("🌧️ ${(playlist.rainVolume * 100).toInt()}%")
+                                if (playlist.howlVolume > 0.01f) activeTones.add("🐺 ${(playlist.howlVolume * 100).toInt()}%")
+                                
+                                Text(
+                                    text = activeTones.joinToString(" • "),
+                                    style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 10.sp),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (isActive) {
+                                    Text(
+                                        text = "نشطة 🟢",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalAccentBright, fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                        modifier = Modifier.padding(end = 4.dp)
+                                    )
+                                } else {
+                                    IconButton(
+                                        onClick = { onSelectPlaylist(playlist.id) },
+                                        modifier = Modifier.size(28.dp).testTag("activate_playlist_${playlist.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "تفعيل القائمة",
+                                            tint = NaturalText,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { onDeletePlaylist(playlist) },
+                                    modifier = Modifier.size(28.dp).testTag("delete_playlist_${playlist.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "حذف القائمة",
+                                        tint = Color.Red.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Expandable Creation Form Button
+            Button(
+                onClick = { isFormExpanded = !isFormExpanded },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NaturalNavBg,
+                    contentColor = NaturalPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("toggle_create_playlist_button")
+            ) {
+                Icon(
+                    imageVector = if (isFormExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isFormExpanded) "إغلاق نافذة التصميم" else "صمّم تركيبتك الصوتية الخاصة 🛠️",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+
+            AnimatedVisibility(visible = isFormExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                ) {
+                    Text(
+                        text = "المصمّم الصوتي المخصص:",
+                        style = MaterialTheme.typography.bodySmall.copy(color = NaturalText, fontWeight = FontWeight.Bold)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // TextField for Playlist Name
+                    OutlinedTextField(
+                        value = playlistName,
+                        onValueChange = { playlistName = it },
+                        label = { Text("اسم قائمة التشغيل", color = NaturalSubtext) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NaturalText,
+                            unfocusedTextColor = NaturalText,
+                            focusedContainerColor = NaturalNavBg,
+                            unfocusedContainerColor = NaturalNavBg,
+                            focusedBorderColor = NaturalPrimary,
+                            unfocusedBorderColor = NaturalBorder
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("playlist_name_input"),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Mix Sliders:
+                    // 1. Birds
+                    MixSliderItem(
+                        label = "عصافير الصباح الباكر 🐦",
+                        value = birdsVol,
+                        onValueChange = { birdsVol = it },
+                        tag = "birds_slider"
+                    )
+
+                    // 2. Waterfall
+                    MixSliderItem(
+                        label = "هدير الشلالات المتدفقة 🌊",
+                        value = waterfallVol,
+                        onValueChange = { waterfallVol = it },
+                        tag = "waterfall_slider"
+                    )
+
+                    // 3. Wind
+                    MixSliderItem(
+                        label = "نسيم رياح التلال 🍃",
+                        value = windVol,
+                        onValueChange = { windVol = it },
+                        tag = "wind_slider"
+                    )
+
+                    // 4. Rain
+                    MixSliderItem(
+                        label = "أمطار الغروب الرقيقة 🌧️",
+                        value = rainVol,
+                        onValueChange = { rainVol = it },
+                        tag = "rain_slider"
+                    )
+
+                    // 5. Howl
+                    MixSliderItem(
+                        label = "عواء ذئاب البراري 🐺",
+                        value = howlVol,
+                        onValueChange = { howlVol = it },
+                        tag = "howl_slider"
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Save Button
+                    Button(
+                        onClick = {
+                            if (playlistName.isNotBlank()) {
+                                onSavePlaylist(playlistName, birdsVol, waterfallVol, windVol, rainVol, howlVol)
+                                // Reset form values
+                                playlistName = ""
+                                birdsVol = 0.4f
+                                waterfallVol = 0.0f
+                                windVol = 0.3f
+                                rainVol = 0.5f
+                                howlVol = 0.0f
+                                isFormExpanded = false
+                            }
+                        },
+                        enabled = playlistName.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NaturalPrimary,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("save_playlist_button")
+                    ) {
+                        Text(
+                            text = "حفظ وتشغيل القائمة المخصصة ✨",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MixSliderItem(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    tag: String
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall.copy(color = NaturalSubtext, fontSize = 11.sp)
+            )
+            Text(
+                text = "${(value * 100).toInt()}%",
+                style = MaterialTheme.typography.bodySmall.copy(color = NaturalPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0f..1f,
+            colors = SliderDefaults.colors(
+                thumbColor = NaturalPrimary,
+                activeTrackColor = NaturalPrimary,
+                inactiveTrackColor = NaturalBorder
+            ),
+            modifier = Modifier.testTag(tag)
+        )
     }
 }

@@ -25,5 +25,18 @@ data class AppPreference(
     val deepSleepDurationMinutes: Int = 30, // standard duration
     val deepSleepStartTimeMillis: Long = 0L,
     val isDeepSleepTimerActive: Boolean = false,
-    val introduceNightHowls: Boolean = false
+    val introduceNightHowls: Boolean = false,
+    val activePlaylistId: Int? = null,
+    val playlistVolumeFactor: Float = 1.0f
+)
+
+@Entity(tableName = "custom_playlists")
+data class CustomPlaylist(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val birdsVolume: Float = 0.0f,
+    val waterfallVolume: Float = 0.0f,
+    val windVolume: Float = 0.0f,
+    val rainVolume: Float = 0.0f,
+    val howlVolume: Float = 0.0f
 )

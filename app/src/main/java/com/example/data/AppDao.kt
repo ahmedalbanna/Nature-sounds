@@ -22,4 +22,16 @@ interface AppDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun savePreferences(pref: AppPreference)
+
+    @Query("SELECT * FROM custom_playlists ORDER BY id DESC")
+    fun getAllPlaylists(): Flow<List<CustomPlaylist>>
+
+    @Query("SELECT * FROM custom_playlists WHERE id = :id")
+    suspend fun getPlaylistById(id: Int): CustomPlaylist?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlaylist(playlist: CustomPlaylist): Long
+
+    @Delete
+    suspend fun deletePlaylist(playlist: CustomPlaylist)
 }
